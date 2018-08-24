@@ -1,0 +1,599 @@
+---
+title: "STAT 420 Group Project Report"
+author: "Ali Mojiz (amojiz2), Dao Qu (daoqu2), Xiaoxue Zhang (xiaoxue3)"
+output:
+  html_document:
+    toc: yes
+  pdf_document: default
+  word_document:
+    toc: yes
+---
+
+#Carrier Rate Statistical Modeling
+
+##Introduction
+
+###Background
+&nbsp;&nbsp;&nbsp;&nbsp;PepsiCo has the largest private fleet in the United States and world leading transportation planning and execution systems, which on average process around 6,000 orders/shipments deliveries every day within US. The network and resources owned by PepsiCo is self sufficient to cover the majority, about 98%, of the order deliveries. Ideally close to 100% is preferred however due to numerous reasons such as cost trade off, stringent time constraints, resource availability, etc., the remaining 2% of the loads would have to go to a place called the "Spot Bid", where, just like an auction, common carriers such as UPS and FedEx will login to our system and place the bid for the delivery job. Basically, since we cannot handle these deliveries by ourselves on time, we must outsource to a third party.
+
+###Business Challenge
+&nbsp;&nbsp;&nbsp;&nbsp;This process is an essential component of the business to ensure all our products arrive our customers' hands on time. However, one of the biggest challenges of this process is that, especially for lanes with only one or very few carrier options and thus the carriers have more bargaining power, the business is losing lots of money by overpaying a huge number of inflated rates. For example, from point A to B, the normal transportation cost is $200 and there are 2 carriers for this lane who placed a bid of $600 and $800 respectively. Even though the cheapest option is chosen, the business ends up paying an inflated rate of $400. Because of PepsiCo's massive business operating scale, such loss adds up to $25 million in 2016.
+
+###Problem description
+&nbsp;&nbsp;&nbsp;&nbsp;The goal of the project is to develop a prediction model on the bid cost of the load, i.e., LINEHUAL_AMT variable in the dataset, to generate a reasonable bid cost range which can be then utilized to identify the overpayment, assess the loss, gain bargaining power for the price negotiation with carriers, etc. The estimated productivity drive for this solution is $12.5 million in 2016, accounting for half of the carrier bidding loss mentioned in the background section.
+
+###Dataset and variables
+&nbsp;&nbsp;&nbsp;&nbsp;The data used is a direct extract from the PepsiCo transportation management system named "Transportation Manager", which is a part of the Enterprise Resource Planning (ERP) system that manages the whole transportation cycle including order processing, shipment building, load consolidation, route planning, and delivery execution. The data set captures the loads that went to the "Spot Bid" for the last 10 months for one of the PepsiCo's subdivision - Quaker Foods and Beverages (QFB). The data for this project consists of 6,232 observations of
+the following 21 variables:
+
+```{r warning=FALSE, echo=FALSE}
+library(knitr)
+column_def = data.frame(VariableName = 'LD_LEG_ID', DataType = 'Numeric', VariableType = 'N/A', 'Description' = 'Unique identifier for each individual load')
+column_def = rbind(column_def, data.frame(VariableName = 'BUSINESS_UNIT', DataType = 'Factor', VariableType = 'N/A', 'Description' = 'The subdivisions of PepsiCo organization. Hard coded as "QFB" for Quaker Foods and Beverages for model simplicity'))
+column_def = rbind(column_def, data.frame(VariableName = 'CARR_CD', DataType = 'Factor', VariableType = 'Predictor', 'Description' = 'Carrier used to haul the load'))
+column_def = rbind(column_def, data.frame(VariableName = 'LINEHAUL_AMT', DataType = 'Numeric', VariableType = 'Response', 'Description' = 'The carrier bid cost. Also the total cost of hualing the load'))
+column_def = rbind(column_def, data.frame(VariableName = 'BID_WTD_RATE', DataType = 'Numeric', VariableType = 'Predictor', 'Description' = 'The contracted rate set at the beginning of the year'))
+column_def = rbind(column_def, data.frame(VariableName = 'FUEL_AMT', DataType = 'Numeric', VariableType = 'Predictor', 'Description' = 'The fuel cost of hauling the load'))
+column_def = rbind(column_def, data.frame(VariableName = 'LD_TOT_DIST', DataType = 'Numeric', VariableType = 'Predictor', 'Description' = 'Total distance driven for the load delivery'))
+column_def = rbind(column_def, data.frame(VariableName = 'BID_LN_ANNUAL_VOL', DataType = 'Numeric', VariableType = 'Predictor', 'Description' = 'Total contracted volume for the lane set at the beginning of the year'))
+column_def = rbind(column_def, data.frame(VariableName = 'BID_LN_CARR_RATE', DataType = 'Numeric', VariableType = 'Predictor', 'Description' = 'Contracted price set at the beginning of the year'))
+column_def = rbind(column_def, data.frame(VariableName = 'BID_LN_CARR_ANNUAL_VOL', DataType = 'Numeric', VariableType = 'Predictor', 'Description' = 'Contracted volume set at the beginning of the year for the carrier for the lane'))
+column_def = rbind(column_def, data.frame(VariableName = 'SCDD_YRPDWK', DataType = 'Factor', VariableType = 'Predictor', 'Description' = 'The dispatch start date of the load in PepsiCo calendar, in the format Year_MonthxWeek'))
+column_def = rbind(column_def, data.frame(VariableName = 'LD_END_DT', DataType = 'Date', VariableType = 'N/A', 'Description' = 'The completion date time of the load delivery'))
+column_def = rbind(column_def, data.frame(VariableName = 'ORIGIN_CITY', DataType = 'Factor', VariableType = 'Predictor', 'Description' = 'The city of the load origin'))
+column_def = rbind(column_def, data.frame(VariableName = 'ORIGIN_STATE', DataType = 'Factor', VariableType = 'Predictor', 'Description' = 'The state of the load origin'))
+column_def = rbind(column_def, data.frame(VariableName = 'DEST_CITY', DataType = 'Factor', VariableType = 'Predictor', 'Description' = 'The city of the load destination'))
+column_def = rbind(column_def, data.frame(VariableName = 'DEST_STATE', DataType = 'Factor', VariableType = 'Predictor', 'Description' = 'The city of the load destination'))
+column_def = rbind(column_def, data.frame(VariableName = 'TOT_SCLD_WGT', DataType = 'Numeric', VariableType = 'Predictor', 'Description' = 'The total weight in pounds of the load'))
+column_def = rbind(column_def, data.frame(VariableName = 'TOT_VOL', DataType = 'Numeric', VariableType = 'Predictor', 'Description' = 'The total volume in cubic feet of the load'))
+column_def = rbind(column_def, data.frame(VariableName = 'TOT_TOT_PCE', DataType = 'Numeric', VariableType = 'Predictor', 'Description' = 'The total number of pallets on the load'))
+column_def = rbind(column_def, data.frame(VariableName = 'TOT_TOT_SKID', DataType = 'Numeric', VariableType = 'Predictor', 'Description' = 'The total number of skids on the load'))
+kable(column_def)
+```
+
+
+##Methods
+
+###Overview
+
+&nbsp;&nbsp;&nbsp;&nbsp;To provide the readers with a high level overview and better understanding of the flow and methodologies employed in the Methods section:
+
+* we first imported the live load data extracted directly from the PepsiCo production transportation system and pre-processed the data by removing the absolute invalid data due to system and/or human error. 
+
+* Then the outlier analysis was conducted and the extreme data points are removed after thouroughly validating with and obtaining the alignment from the PepsiCo business team.
+
+* Performed the multicollinearity analysis to further clean and prepare the data set for the modeling.
+
+* Applied transformations on both response and predictor variables to normalize and standardize the data to better expose the relationship between the response and predictors.
+
+* Selected the important variables based on the backward AIC searching.
+
+* Splitted the raw data set into train vs. test by 70/30 to best test and evaluate the modeling results.
+
+* Recursively looped through all the combinations of all the important predictors indentified from the previous steps with thier interaction terms and summarize all the models built.
+
+* Select the best models depending on the different evaluation criteria.
+
+&nbsp;&nbsp;&nbsp;&nbsp;More details are elaborated in the following sections.
+
+###Data Import & Pre-processing
+
+&nbsp;&nbsp;&nbsp;&nbsp;The first step is to import and clean up the dataset for any invalid data. After a thourough discussion with the PepsiCo business tema, we decide to treat all the numberic data with null or zero value as invalid data because they are either due to the human error during the data entry, or are the loads that are cancelled or failed the optimization. Specifically, we set all such data to NA and eliminated them by na.omit statement. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;In addition, a new factor variable, LANE, is created by concatenating ORIGIN CITY, ORIGIN STATE, DEST CITY and DEST STATE, which managed to effectively help reduce the complexity of model while keeping the adequant level of details. The factor variable, SCDD_YRPDWK, was treated by removing the last two characters representing the week to be aggregated to the business period level (4 weeks make a business period), the same level as the company does its bid planning analysis. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;Alignment has been obtained from the PepsiCo business team on all the methodologies methoned above. As a result, 2,956 valid observations remain after the cleanup process with the following variables: *CARR_CD, LINEHAUL_AMT, BID_WTD_RATE, FUEL_AMT, LD_TOT_DIST, BID_LN_ANNUAL_VOL, BID_LN_CARR_RATE, BID_LN_CARR_ANNUAL_VOL, SCDD_YRPDWK, LD_LAST_SHPG_LOC_CD, TOT_SCLD_WGT, TOT_VOL, TOT_TOT_PCE, TOT_TOT_SKID,LANE*.
+
+```{r}
+# import raw data & data clean
+load_data = read.csv('load_export.csv')
+
+# remove invalid data
+load_data_clean = subset(load_data, 
+                         !is.null(LINEHAUL_AMT) & LINEHAUL_AMT > 0 
+                         & !is.null(LD_TOT_DIST) & LD_TOT_DIST > 0
+                         & !is.null(TOT_SCLD_WGT) & TOT_SCLD_WGT > 0
+                         & !is.null(TOT_VOL) & TOT_VOL > 0
+                         & !is.null(TOT_TOT_PCE) & TOT_TOT_PCE > 0
+                         & !is.null(TOT_TOT_SKID) & TOT_TOT_SKID > 0
+                         & !is.null(BID_WTD_RATE) & BID_WTD_RATE > 0
+                         & !is.null(BID_LN_ANNUAL_VOL) & BID_LN_ANNUAL_VOL > 0
+                         & !is.null(BID_LN_CARR_ANNUAL_VOL) & BID_LN_CARR_ANNUAL_VOL > 0
+                         & !is.null(BID_LN_CARR_RATE) & BID_LN_CARR_RATE > 0)
+load_data_clean = na.omit(load_data_clean)
+
+# lane concatination
+load_data_clean$LANE = paste(load_data_clean$ORIGIN_CITY, '_', load_data_clean$ORIGIN_STATE, '-', load_data_clean$DEST_CITY, '_', load_data_clean$DEST_STATE, sep = '')
+
+# business period aggregation
+load_data_clean$SCDD_YRPDWK = substr(load_data_clean$SCDD_YRPDWK, 1, nchar(as.character(load_data_clean$SCDD_YRPDWK)) - 2)
+
+# data type casting
+load_data_clean$CARR_CD = as.factor(load_data_clean$CARR_CD)
+load_data_clean$SCDD_YRPDWK = as.factor(load_data_clean$SCDD_YRPDWK)
+load_data_clean$LANE = as.factor(load_data_clean$LANE)
+
+# remove predictors that are no longer necessary after the lane concatination
+load_data_clean$ORIGIN_CITY = NULL
+load_data_clean$ORIGIN_STATE = NULL
+load_data_clean$DEST_CITY = NULL
+load_data_clean$DEST_STATE = NULL
+load_data_clean$LD_END_DT = NULL
+
+# remove BUSINESS_UNIT as it will only contain one value for this exersise
+load_data_clean$BUSINESS_UNIT = NULL
+
+# remove load id that does not have any meaning or impact on the model building
+load_data_clean$LD_LEG_ID = NULL
+
+# make sure of the correct data structure
+library(tibble)
+as_tibble(load_data_clean)
+
+```
+
+###Outlier Identification and Removal
+
+&nbsp;&nbsp;&nbsp;&nbsp;After removing the invalid data, next is to identify the outliers that would potentially distort the model. Outliers are observations that appear to deviate remarkbly from other observations in the sample. A function named "**outlier_quantile**" has been written to achive such goal that uses quatile and IQR combined to identify the outliers. Specifically, the industry best practice has been employed, i.e., any value below the first quatile minus 1.5 times the IQR or above the third quatile plus 1.5 times the IQR is considered outliers. The function returns a vector variable, outlier_index, populated with the indexes of such outliers within the dataset. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;Finally, these outliers were replaced with NA and removed from the dataset. We have sent the outliers identified to the business team to validate and they agreed on removing these data as they are real outliers in business context as well. After the treatment, we have 2,028 obeservation remaining.
+
+```{r,echo=TRUE,warning=FALSE,message=FALSE}
+
+# outlier identification function with default iqr factor of 1.5
+outlier_quatile = function(x, coef = 1.5){
+  qtl = quantile(x)
+  iqr = IQR(x)
+  
+  # return the index of the outliers in the dataset
+  return(which(x > qtl[4] + coef * iqr | x < qtl[2] - coef * iqr))
+}
+
+# loop through all numeric variables and apply the outlier identification function
+outlier_index = NULL
+for(i in names(load_data_clean)[sapply(load_data_clean, is.numeric)]){
+  outlier_index = c(outlier_index, outlier_quatile(load_data_clean[[i]]))
+}
+
+# get the unique indexes
+outlier_index = unique(outlier_index)
+
+# remove the outliers identified
+load_data_clean$LINEHAUL_AMT[outlier_index] = NA
+load_data_clean = na.omit(load_data_clean)
+nrow(load_data_clean)
+```
+
+###Correlation analysis and treatment.
+
+&nbsp;&nbsp;&nbsp;&nbsp;Next is to test and eliminate the multicollinearity among the numeric varialbes, which does not effect the prediction per se, but could largely affect the explaination and interpetation of the model. To achieve this purpose, three methods are used: paris plot, Variance Inflation Iactor(VIF), and partial correlation analysis. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;Firstly, a pairs plot is made to get a big picture of the relationship among all numeric variables. 
+
+```{r fig.width=20, fig.height=20}
+pairs(load_data_clean)
+```
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;As we can immediately see from the figure above, multicollinearity exists between BID_WTD_RATE & BID_LN_CARR_RATE, and FUEL_AMT & LD_TOT_DIST, which also matches the results of the VIF test:
+
+```{r,echo=TRUE,warning=FALSE,message=FALSE}
+
+# identify and remove multicollinearity
+library(faraway)
+model = lm(as.formula(paste('LINEHAUL_AMT ~ ', paste(names(load_data_clean)[sapply(load_data_clean, is.numeric)][-1], sep = '', collapse = ' + '), sep = '')), data = load_data_clean)
+
+# vif before removal
+vif(model)
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;The results makes sense even without the statistical methodologies. FUEL_AMT, which represents the fuel cost of the load delivery, is merely the product of the distance driven, LD_TOT_DIST, and a fuel rate which usually does not vary dramatically. The BID_WTD_RATE is the weighted average rate of all the carriers on each specific lane and includes the BID_LN_CARR_RATE as a part. For small lanes with only one carrier, the BID_WTD_RATE and BID_LN_CARR_RATE are equal. Hence the high multicollinearity. Therefore, we can safely remove FUEL_AMT and BID_WTD_RATE from the model both from a statistical and business perspective but we will still perform a partial correlation analysis on these two variables before removing them.
+
+```{r}
+model_fuel_1 = lm(LINEHAUL_AMT ~ . -FUEL_AMT, data = load_data_clean)
+model_fuel_2 = lm(FUEL_AMT ~ . -LINEHAUL_AMT, data = load_data_clean)
+cor(resid(model_fuel_1), resid(model_fuel_2))
+
+model_rate_1 = lm(LINEHAUL_AMT ~ . -BID_WTD_RATE, data = load_data_clean)
+model_rate_2 = lm(BID_WTD_RATE ~ . -LINEHAUL_AMT, data = load_data_clean)
+cor(resid(model_rate_1), resid(model_rate_2))
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;All the partial correlation results indicate a low partial correlation, suggesting that these two variables can already be largely explained by other predictors in the model and do not generate a significant impact. Therefore, the FUEL_AMT and BID_WTD_RATE are removed from the model.
+
+```{r}
+load_data_clean$BID_WTD_RATE = NULL
+load_data_clean$FUEL_AMT = NULL
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;After removing the high multicollinearity, let's check the variance inflation factor one more time
+
+```{r}
+model = lm(as.formula(paste('LINEHAUL_AMT ~ ', paste(names(load_data_clean)[sapply(load_data_clean, is.numeric)][-1], sep = '', collapse = ' + '), sep = '')), data = load_data_clean)
+
+#vif after removal
+vif(model)
+
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;As can be seen from the output, all VIF values are less than 5 now, suggesting that the multicollinearity issue has been largely improved.
+
+
+###Transforming Predictors and Response
+
+&nbsp;&nbsp;&nbsp;&nbsp;Till this point we have cleaned up the data, removed the outliers and eliminated the multicollinearity. Next step is to find the best transformations on the predictors and reponse to standardize the data to achieve the best modeling results. A function named **transform_step**, is written for this purpose. The function loops through all common transformations such as square root, log, square, etc. and returns the fittness of each attempt and print the plot of the best model with the hightest r squared value.
+
+```{r warning=FALSE, message=FALSE}
+library(lmtest)
+```
+```{r}
+# accepts the raw dataset, the names of the predictor and the reponse, the transformation methods with default value of all most commonly used formulas, and a boolean value indicating weather or not to transform the response variable also
+transform_step = function(raw_data, y_name, x_name, transformations = c('%var%', 'log(%var%)', 'I(1 / (%var%))', 'I((%var%) ^ 0.5)', 'I((%var%) ^ 2)', 'I((%var%) ^ 3)'), if_transform_y = TRUE){
+  best_model = NULL
+  best_rsquare = 0
+  best_x = NULL
+  best_y = NULL
+  best_x_transform = NULL
+  best_y_transform = NULL
+  ret = NULL
+
+  x = raw_data[[x_name]]
+  y = raw_data[[y_name]]
+  
+  # loop through all transfomations for the response variable
+  for(i in 1:(length(transformations) - 1)){
+    # loop through all transfomations for the predictor variable
+    for(j in 1:length(transformations)){
+      # transform preditor and response data by running the eval function and passing the transformation formula
+      x_transform = eval(parse(text = gsub('%var%', 'x', transformations[j])))
+      y_transform = eval(parse(text = gsub('%var%', 'y', transformations[i])))
+      
+      # fit the model with transformed variables
+      model = lm(as.formula(paste(gsub('%var%', y_name, transformations[i]), ' ~ ', gsub('%var%', x_name, transformations[j]), sep = '')), data = raw_data)
+      
+      # record model summary results
+      r_square = summary(model)$r.square
+      rmse_loocv = sqrt(mean((resid(model) / (1 - hatvalues(model))) ^ 2))
+      
+      # save the best transformation with the highest r square value
+      if (r_square > best_rsquare){
+        best_model = model
+        best_rsquare = r_square
+        best_x = x_transform
+        best_y = y_transform
+        best_x_transform = gsub('%var%', x_name, transformations[j])
+        best_y_transform = gsub('%var%', y_name, transformations[i])
+      }
+      
+      # add the model results to the dataframe to be returned
+      ret = rbind(ret, data.frame(x = x_name, x_transformation =  gsub('%var%', x_name, transformations[j]), y = y_name, y_transformation = gsub('%var%', y_name, transformations[i]), r_square = r_square, bp_test = bptest(model)$p.value, shapiro_test = shapiro.test(resid(model))$p.value, rmse_loocv = rmse_loocv))
+    }
+    
+    # if no response transformaiton is needed, then break the loop and return the results
+    if (!if_transform_y){
+      break()
+    }
+  }
+  
+  # plot the best model found. poly transfrom has some special treatments
+  if (grepl('poly', toString(best_x_transform))){
+    plot(x, y, col = 'red', xlab = best_x_transform, ylab = best_y_transform, main = paste('r^2 = ', round(r_square, 3), sep = ''))
+    x_plot = seq(min(x), max(x), diff(range(x)) / 10000)
+    y_plot = predict(best_model, newdata = eval(parse(text = paste('data.frame(', x_name, '= x_plot)', sep = ''))))
+  }
+  else{
+    plot(best_x, best_y, col = 'red', xlab = best_x_transform, ylab = best_y_transform, main = paste('r^2 = ', round(r_square, 3), sep = ''))
+    x_plot = best_x
+    y_plot = fitted(best_model)
+  }
+  lines(x_plot, y_plot)
+  
+  ret = ret[order(ret[, 3], ret[, 1], ret[, 5], decreasing = TRUE), ]
+  return(ret)
+}
+
+# apply the function on each of the numeric predictors against the response
+best_transformation_x = NULL
+predictor_names = names(load_data_clean)[sapply(load_data_clean, is.numeric)][-1]
+par(mfrow = c(ceiling(length(predictor_names) / 4), 4))
+for(i in predictor_names){
+  best_transformation_x = rbind(best_transformation_x, transform_step(load_data_clean, 'LINEHAUL_AMT', i, if_transform_y = FALSE))
+}
+
+# print out the results of transformation attempts
+best_transformation_x
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;After reviewing the results returned and a trade off between the fitness and overfitting, we decided to apply square root transformation for LD_TOT_DIST and BID_LN_CARR_RATE, and leave other predictors as is.
+
+&nbsp;&nbsp;&nbsp;&nbsp;For the response transformation,the boxcox method is used.  
+
+&nbsp;&nbsp;&nbsp;&nbsp;Before transformation:
+```{r}
+library(MASS)
+par(mfrow = c(1, 1))
+model = lm(LINEHAUL_AMT ~ I(LD_TOT_DIST ^ 0.5) + BID_LN_ANNUAL_VOL + I(BID_LN_CARR_RATE ^ 0.5) + BID_LN_CARR_ANNUAL_VOL + TOT_SCLD_WGT + TOT_TOT_PCE + TOT_VOL + TOT_TOT_SKID, data = load_data_clean)
+boxcox(model, lambda = seq(0.1, 0.5, 0.1))
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;As the figure suggests, a $\lambda = 0.3$ is used to transform the response variable. A new variable named LINEHAUL_AMT_TRANSFORMED was created as the result of the calculation "(LINEHAUL_AMT ^ $\lambda$ - 1) / $\lambda$ with $\lambda = 0.3$"
+
+&nbsp;&nbsp;&nbsp;&nbsp;After the transformation:
+
+```{r}
+load_data_clean$LINEHAUL_AMT_TRANSFORMED = (load_data_clean$LINEHAUL_AMT ^ 0.3 -1) / 0.3
+model = lm(LINEHAUL_AMT_TRANSFORMED ~ I((LD_TOT_DIST) ^ 0.5) + BID_LN_ANNUAL_VOL + I(BID_LN_CARR_RATE ^ 0.5) + BID_LN_CARR_ANNUAL_VOL + TOT_SCLD_WGT + TOT_TOT_PCE + TOT_VOL + TOT_TOT_SKID, data = load_data_clean)
+boxcox(model, lambda = seq(0.5, 1.5, 0.1))
+
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;Now $\lambda = 1$ falls within the 95% confidence interval and is very close to the maximum likelihood, indicating that no further response transformation is needed according to the coxbox analysis.
+
+
+###Variable Selection
+
+&nbsp;&nbsp;&nbsp;&nbsp;The goal of this section is to search for the significant variables to be used for the model building. We have written a separate recursive function that loops through all possible combinations of predictors and their interactions to pick the best model depending on different criteria so will only use the AIC searching algorithm to identify the important variables to feed the recursive function (will explain in great details later).
+
+```{r}
+# fit the full model
+model_full = lm(LINEHAUL_AMT_TRANSFORMED ~ CARR_CD + SCDD_YRPDWK + LANE + I((LD_TOT_DIST) ^ 0.5) + BID_LN_ANNUAL_VOL + I(BID_LN_CARR_RATE ^ 0.5) + BID_LN_CARR_ANNUAL_VOL + TOT_SCLD_WGT + TOT_TOT_PCE + TOT_VOL + TOT_TOT_SKID, data = load_data_clean)
+
+# perform AIC backward model selection
+model_best_aic = step(model_full, trace=0)
+model_best_aic$call
+
+```
+
+
+###Splitting Train and Test Data
+
+&nbsp;&nbsp;&nbsp;&nbsp;In order to test the fittness and predictability of the model, the data set is split into the train and test data using the function **train_test_split** that takes the raw data, the percentage of the dataset for train data, and a boolean variable indicating whether to use purely random sampling for the splitting and returns vector containing indexes of the dataset for train data. When performing the splitting, the function ensures that train dataset contains all levels for all the categorical variables so that validation against the test data can be performed while retain the random nature by performing random sampling technique within each level group. More details are explained by the code comments below.
+
+&nbsp;&nbsp;&nbsp;&nbsp;For this exercise, the split of data is approximately 0.7 and 0.3 for train and test data respectively. 
+
+```{r}
+# accepts the raw data, percentage for train, and if use pure random sampling
+train_test_split = function(raw_data, train_pct, if_random_only = FALSE){
+  
+  # perform the pure ramdon sampling
+  if (if_random_only){
+    num_train = floor(nrow(raw_data) * train_pct)
+    if(num_train<1){
+      num_train = 1
+    }
+    return(sample(1:nrow(raw_data), num_train))
+  }
+  else{
+    best_indexes = NULL
+    
+    # try different cutoff to achieve the closest train test split requested while retain all the levels for all the categorical predictors
+    for(j in seq(0, 1, 0.05)){
+      indexes = NULL
+      
+      # loop through all factor predictors
+      factor_index =which(sapply(raw_data, is.factor) == TRUE) 
+      for(i in factor_index){
+        # loop through all factor level group and perform the random sampling technique within each group
+        for(l in levels(raw_data[[i]])){
+          row_index = which(raw_data[[i]] == l)
+          num_train = floor(length(row_index) * j)
+          if(num_train<1){
+            num_train = 1
+          }
+          
+          # combine the indexes from each random sampling
+          indexes = c(indexes, row_index[sample(1:length(row_index), num_train)])
+        }
+      }
+      
+      # only keep the unique indexes
+      indexes = unique(indexes)
+      
+      # save the best result that's closest to the train test split requested
+      if (is.null(best_indexes) | abs(length(indexes) / nrow(raw_data) - train_pct) < abs(length(best_indexes) / nrow(raw_data) - train_pct)){
+        best_indexes = indexes
+      }
+    }
+    
+    return(best_indexes)
+  }
+}
+
+# train test split
+train_index = train_test_split(load_data_clean, 0.7)
+
+load_data_clean_train = load_data_clean[1:nrow(load_data_clean) %in% train_index, ]
+load_data_clean_test = load_data_clean[ !(1:nrow(load_data_clean) %in% train_index), ]
+
+# percentage for train data set that captures all the levels of all the categorical predictors
+nrow(load_data_clean_train)/nrow(load_data_clean)
+
+# percentage for test data set
+nrow(load_data_clean_test)/nrow(load_data_clean)
+```
+
+###Model building using Recursive Function
+
+&nbsp;&nbsp;&nbsp;&nbsp;After idenfying the important variables and performing the train test data split, it is time to select the best models that have high r & adjusted r square, bptest and shapiro test value and low standard residual error, aic, bic, loocv rmse, train rmse and test rmse. In order to achieve this goal, a recursive model building function, **lm_recursive** has been written to recursively iterate all the possbile combinations of predictors and their interactions and summarize the modeling results. More details are explained in the code comments.
+
+&nbsp;&nbsp;&nbsp;&nbsp;Take an example for illustration, suppose a model has one response variable $y$ and three predictors $x1, x2, x3$. The recursive function will attempt to iterate all possible combinations of the predictors and their interactions and build and summarize the following 13 models:
+
+$y$ ~ $x1$
+
+$y$ ~ $x1 + x2$
+
+$y$ ~ $x1 + x2 + x1 * x2$
+
+$y$ ~ $x1 + x2 + x3$
+
+$y$ ~ $x1 + x2 + x3 + x1 * x2$
+
+$y$ ~ $x1 + x2 + x3 + x1 * x2 * x3$
+
+$y$ ~ $x1 + x2 + x3 + x1 * x3$
+
+$y$ ~ $x1 + x2 + x3 + x2 * x3$
+
+$y$ ~ $x1 + x3$
+
+$y$ ~ $x1 + x3 + x1 * x3$
+
+$y$ ~ $x2 + x3$
+
+$y$ ~ $x2 + x3 + x2 * x3$
+
+$y$ ~ $x3$
+
+&nbsp;&nbsp;&nbsp;&nbsp;**Please note that the code to kick off the recursive modeling process has been set not to be evaluated for now since it may take a couple of hours to complete. However, the results are stored in the "out.csv" attached with the other project files for your reference.**
+
+```{r,echo=TRUE,warning=FALSE,message=FALSE}
+# global variable that stores the modeling results
+result <<- data.frame()
+
+
+# raw data: the raw data set/frame, 
+# y_name & x_names: the expressions of the response and predictors to be used in the formula. e.g I(BID_LN_CARR_RATE ^ 0.5)
+# var_names: the raw names of the predictors
+# train_index: the indexes of the raw_data for the train data set
+# current_path: the current recursive iteration
+lm_recursive = function(raw_data, y_name, x_names, var_names, train_index, current_path = NULL) {
+  
+  # if x_names equals ., all the variables except for the response will be used as predictors
+  if (x_names[1] == '.') {
+    x_name = names(raw_data)[names(raw_data) != y_name]
+  }
+  else{
+    x_name = x_names
+  }
+  
+  # termination criteria of the recursive function (when the current iteration covers all the predictors)
+  if (ifelse(is.null(current_path), 0, max(current_path)) == length(x_name)) {
+    return()
+  }
+  
+  # start the looping from the next predictor to the last predictor iterated
+  for (i in (ifelse(is.null(current_path), 0, max(current_path)) + 1):length(x_name)) {
+    
+    # extract predictors for this level of iteration
+    x = x_name[c(current_path, i)]
+    
+    # prepare the formula string dynamically with the predictors extracted
+    model_formula_str = paste(y_name, ' ~ ', paste(x, collapse = ' + '), collapse = '', sep = '')
+    print(model_formula_str)
+    
+    # fit the model using the current combination of predictors and test data
+    model = lm(as.formula(model_formula_str), data = raw_data[1:nrow(load_data_clean) %in% train_index, ])
+    
+    # summarize and store the modeling results
+    summarize_model(model_formula_str, model, raw_data[!(1:nrow(load_data_clean) %in% train_index), ], y_name)
+    
+    # if the number of predictors exceeds one then invoke the recursive funtion for interation
+    if (length(x) > 1) {
+      lm_recursive_interact(raw_data, y_name, x_name, var_names, train_index, c(current_path, i))
+    }
+    
+    # calling self function to start the next iteration of combinations of predictors
+    lm_recursive(raw_data, y_name, x_names, var_names, train_index, c(current_path, i))
+  }
+}
+
+
+# raw data: the raw data set/frame, 
+# y_name & x_name: the expressions of the response and predictors to be used in the formula. e.g I(BID_LN_CARR_RATE ^ 0.5)
+# var_name: the raw names of the predictors
+# train_index: the indexes of the raw_data for the train data set
+# current_path: the current recursive iteration and combination of predictors passed from the lm_recursive function
+# current_path_interact: the current recursive interaction iteration
+lm_recursive_interact = function(raw_data,
+                                 y_name,
+                                 x_name,
+                                 var_name,
+                                 train_index,
+                                 current_path,
+                                 current_path_interact = NULL) {
+  
+  # termination criteria of the recursive function (when the current interation iteration covers all the predictors passed from the parent lm_recursive function)
+  if (ifelse(is.null(current_path_interact), 0, max(current_path_interact)) == length(current_path)) {
+    return()
+  }
+  
+  # start the looping from the next predictor to the last predictor iterated
+  for (i in (ifelse(is.null(current_path_interact), 0, max(current_path_interact)) + 1):length(current_path)) {
+    
+    # extract predictors for this level of interation iteration
+    x = x_name[current_path[c(current_path_interact, i)]]
+    
+    # configure the number of ways of interaction and limit the number of categorical predictors in the interaction term for performance consideraitons
+    # here only two way and three way interactions are considered and no categorical variables are included in the interaction term
+    if (length(x) >= 2 & length(x) <=3 & mean(sapply(raw_data[, var_name[current_path[c(current_path_interact, i)]]], is.numeric)) == 1) {
+      
+      # prepare the formula string dynamically with the predictors passed from the parent lm_recursive function and their interaction terms
+      model_formula_str = paste(y_name, ' ~ ', paste(paste(x_name[current_path], collapse = ' + '), '+', paste(x, collapse = ' * ')))
+      model_formula = as.formula(model_formula_str)
+      print(model_formula_str)
+      
+      # fit the model with the predictors passed from the parent lm_recursive function and their interaction terms
+      model = lm(model_formula, data = raw_data[1:nrow(load_data_clean) %in% train_index, ])
+      
+      # summarize and store the modeling results
+      summarize_model(model_formula_str, model, raw_data[!(1:nrow(load_data_clean) %in% train_index), ], y_name)
+    }
+    
+    # calling self function to start the next iteration of combinations of interaction terms
+    lm_recursive_interact(raw_data, y_name, x_name, var_name, train_index, current_path, c(current_path_interact, i))
+  }
+}
+
+# summary function that stores into the global variable the results of various modeling analysis
+summarize_model = function(model_formula_str, model, test_data, y_name) {
+  model_summary = summary(model)
+  test_result = predict(model, newdata = test_data)
+  result <<-
+    rbind(
+      result,
+      data.frame(
+        call = model_formula_str,
+        r.squared = model_summary$r.squared,
+        adj.r.squared = model_summary$adj.r.squared,
+        sigma = model_summary$sigma,
+        bp_test = bptest(model)$p.value,
+        shapiro_test = shapiro.test(resid(model))$p.value,
+        aic = extractAIC(model)[2],
+        bic = extractAIC(model, k = log(length(resid(model))))[2],
+        loocv_rmse = sqrt(mean((resid(model) / (1 - hatvalues(model))) ^ 2)),
+        train_rmse = sqrt(sum(resid(model) ^ 2) / length(resid(model))),
+        test_rmse = sqrt(sum((test_result - test_data[[y_name]]) ^ 2) / nrow(test_data))
+      )
+    )
+}
+
+```
+
+```{r eval=FALSE}
+# kick off the recursive model building. Only the important variables identified in the AIC variable selection process are used
+lm_recursive(load_data_clean,'LINEHAUL_AMT_TRANSFORMED', c('CARR_CD', 'SCDD_YRPDWK', 'LANE', 'BID_LN_CARR_ANNUAL_VOL', 'I(BID_LN_CARR_RATE ^ 0.5)','BID_LN_CARR_ANNUAL_VOL', 'TOT_SCLD_WGT', 'TOT_TOT_PCE'), c('CARR_CD', 'SCDD_YRPDWK', 'LANE', 'BID_LN_CARR_ANNUAL_VOL', 'BID_LN_CARR_RATE','BID_LN_CARR_ANNUAL_VOL', 'TOT_SCLD_WGT', 'TOT_TOT_PCE'), train_index)
+
+# write out the modeling results into the "out.csv" file
+write_csv(result, 'out.csv')
+
+```
+##Results
+
+The file, result, is read in order to show the output of the recursive function.
+
+```{r}
+output_models<-read.csv("out.csv")
+head(output_models)
+```
+
+Please note that filters are applied on the CSV and The model with a high rsquared and adjusted rsquared, low train and test RMSE is chosen and trained on the train dataset. The values of the parameters of the model are shown below.
+
+```{r}
+output_models[output_models$call=="LINEHAUL_AMT_TRANSFORMED  ~  CARR_CD + BID_LN_ANNUAL_VOL + I(BID_LN_CARR_RATE ^ 0.5) + SCDD_YRPDWK + LANE + TOT_SCLD_WGT + TOT_TOT_PCE + TOT_VOL + TOT_SCLD_WGT * TOT_TOT_PCE * TOT_VOL",][,-1]
+
+final_model = lm(LINEHAUL_AMT_TRANSFORMED  ~  CARR_CD + BID_LN_ANNUAL_VOL + I(BID_LN_CARR_RATE ^ 0.5) + SCDD_YRPDWK + LANE + TOT_SCLD_WGT + TOT_TOT_PCE + TOT_VOL + TOT_SCLD_WGT * TOT_TOT_PCE * TOT_VOL,data=load_data_clean_train)
+```
+
+##Discussion
+
+
